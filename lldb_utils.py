@@ -19,6 +19,9 @@ import lldb
 def Evaluate_PyObject_AsUTF8(fr, obj):
     return fr.EvaluateExpression('PyUnicode_AsUTF8('+obj+')')
 
+def Evaluate_LineNo(fr, obj):
+    return fr.EvaluateExpression('PyFrame_GetLineNumber('+obj+')')
+
 def gist_extr(s):
     return s[s.find('"') +1: s.rfind('"')]
 
@@ -42,10 +45,9 @@ def py3bt(debugger=None, command=None, result=None, dict=None, thread=None):
     if debugger is None:
         debugger = lldb.debugger
     target = debugger.GetSelectedTarget()
+
     if not isinstance(thread, lldb.SBThread):
         thread = target.GetProcess().GetSelectedThread()
-
-    pystring_t = target.FindFirstType("PyUnicodeObject").GetPointerType()
 
     num_frames = thread.GetNumFrames()
     for i in range(num_frames - 1):
@@ -58,7 +60,7 @@ def py3bt(debugger=None, command=None, result=None, dict=None, thread=None):
             name = gist_extr(name)
 
             f = fr.GetValueForVariablePath("f")
-            lineno = f.GetValueForExpressionPath("->f_lineno").GetValue()
+            lineno = Evaluate_LineNo(fr, "f").GetValue();
 
             print("frame #{}: {} - {}:{}".format(
                 fr.GetFrameID(),
@@ -67,7 +69,7 @@ def py3bt(debugger=None, command=None, result=None, dict=None, thread=None):
                 lineno if lineno else ".",
             ))
 
-CMDS = ("py3bt",)
+CMDS = [("py3-bt", "py3bt")]
 
 
 def __lldb_init_module(debugger, dict):
@@ -82,5 +84,6 @@ def __lldb_init_module(debugger, dict):
     """
     for cmd in CMDS:
         debugger.HandleCommand(
-            "command script add -f lldb_utils.{cmd} {cmd}".format(cmd=cmd)
+            "command script add -f lldb_utils.{func} {cmd}".format(cmd=cmd[0],
+            func=cmd[1])
         )
