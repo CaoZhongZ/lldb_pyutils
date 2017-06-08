@@ -19,6 +19,9 @@ import lldb
 def Evaluate_PyObject_AsUTF8(fr, obj):
     return fr.EvaluateExpression('PyUnicode_AsUTF8('+obj+')')
 
+def gist_extr(s):
+    return s[s.find('"') +1: s.rfind('"')]
+
 def py3bt(debugger=None, command=None, result=None, dict=None, thread=None):
     """
     An lldb command that prints a Python call back trace for the specified
@@ -47,12 +50,17 @@ def py3bt(debugger=None, command=None, result=None, dict=None, thread=None):
     num_frames = thread.GetNumFrames()
     for i in range(num_frames - 1):
         fr = thread.GetFrameAtIndex(i)
-        if fr.GetFunctionName() == "PyEval_EvalFrameEx":
+        if fr.GetFunctionName() == "_PyEval_EvalFrameDefault":
+            filename = str(Evaluate_PyObject_AsUTF8(fr, "f->f_code->co_filename"))
+            name = str(Evaluate_PyObject_AsUTF8(fr, "f->f_code->co_name"))
+
+            filename = gist_extr(filename)
+            name = gist_extr(name)
+
             f = fr.GetValueForVariablePath("f")
-            filename = Evaluate_PyObject_AsUTF8(fr, "f->f_code->co_filename")
-            name = Evaluate_PyObject_AsUTF8(fr, "f->f_code->co_name")
             lineno = f.GetValueForExpressionPath("->f_lineno").GetValue()
-            print("#{}: {} - {}:{}".format(
+
+            print("frame #{}: {} - {}:{}".format(
                 fr.GetFrameID(),
                 filename if filename else ".",
                 name if name else ".",
