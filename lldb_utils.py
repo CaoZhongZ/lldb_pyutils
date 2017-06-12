@@ -16,6 +16,108 @@
 
 import lldb
 
+class NullPyObjectPtr(RuntimeError):
+    pass
+
+class PyObjectPtr(object):
+    """
+    Class wrapping a value that's either a (PyObject *) within the
+    inferior process, or some subclass pointer e.g. (PyBytesObject *)
+
+    There will be a subclass for every refined PyObject type that we
+    care about
+
+    Note that at every stage the underlying pointer could be nullptr,
+    point to corrupt data, etc; this is the debugger, after all.
+    """
+    _typename = 'PyObject'
+
+    def __init__(self, sbval):
+        self._SBValue = sbval;
+
+    def field(self, name):
+        """
+        Get the lldb SBValue for the given field within the PyObject,
+        coping with some python 2 versus python 3 differences.
+
+        Various types are defined using the "PyObject_HEAD" and
+        "PyObject_VAR_HEAD" macros.
+
+        In Python 2, these are defined so that "ob_type" and (for a var
+        object) "ob_size" are fields fo the type in question.
+
+        In Python 3, this is defined as an embedded PyVarObject type thus:
+            PyVarObject ob_base;
+
+        So that the "ob_size" field is located inside the "ob_base" field,
+        and the "ob_type" is most easily accessed by casting back to a
+        (PyObject *).
+        """
+        if self.is_null():
+            raise NullPyObjectPtr(self)
+
+        return self._SBValue.GetChildMemberWithName(name)
+
+        return NotImplemented
+
+    def pyop_field(self, name):
+        """
+        Get a PyObjectPtr for the given PyObject *field within this
+        PyObject, coping with some python 2 versus 3 differences.
+        """
+        return NotImplemented
+
+    def write_field_repr(self, name, out, visited):
+        """
+        Extract the PyObject *field named "name", and write its representation
+        to file-like object "out"
+        """
+        return NotImplemented
+
+    def get_truncated_repr(self, maxlen):
+        """
+        Get a repr-link string for the data, but truncate it at "maxlen" bytes
+        (ending the object graph traversal as soon as you do)
+        """
+        return NotImplemented
+
+    def type(self):
+        return PyTypeObjectPtr(self.field('ob_type'))
+
+    def is_null(self):
+        return 0 == long(self._SBValue.GetValueAsUnsigned())
+
+    def is_optimized_out(self):
+        return NotImplemented
+
+    def safe_tp_name(self):
+        return NotImplemented
+
+    def proxyval(self, visited):
+        return NotImplemented
+
+    def write_repr(self, out, visited):
+        return NotImplemented
+
+    @classmethod
+    def subclass_from_type(cls, t):
+        return NotImplemented
+
+    @classmethod
+    def from_pyobject_ptr(cls, sbval):
+        """
+        Try to locate the appropritate drived class dynamically, and cast
+        the pointer accordingly.
+        """
+        return NotImplemented
+
+    @classmethod
+    def get_lldb_type(cls):
+        return NotImplemented
+
+    def as_address(self):
+        return long(self._SBValue)
+
 def Evaluate_PyObject_AsUTF8(fr, obj):
     return fr.EvaluateExpression('PyUnicode_AsUTF8('+obj+')')
 
@@ -24,6 +126,9 @@ def Evaluate_LineNo(fr, obj):
 
 def gist_extr(s):
     return s[s.find('"') +1: s.rfind('"')]
+
+def is_evalframeex(frame):
+    return fr.GetFunctionName() == 'PyEval_EvalFrameEx'
 
 def py3bt(debugger=None, command=None, result=None, dict=None, thread=None):
     """
@@ -50,16 +155,15 @@ def py3bt(debugger=None, command=None, result=None, dict=None, thread=None):
         thread = target.GetProcess().GetSelectedThread()
 
     num_frames = thread.GetNumFrames()
+
     for i in range(num_frames - 1):
         fr = thread.GetFrameAtIndex(i)
-        if fr.GetFunctionName() == "_PyEval_EvalFrameDefault":
-            filename = str(Evaluate_PyObject_AsUTF8(fr, "f->f_code->co_filename"))
-            name = str(Evaluate_PyObject_AsUTF8(fr, "f->f_code->co_name"))
-
-            filename = gist_extr(filename)
-            name = gist_extr(name)
-
+        if is_evalframeex(fr):
             f = fr.GetValueForVariablePath("f")
+            f = PyObjectPtr(f)
+            f_code = PyObjectPtr(f.field('f_code'))
+            filename = f.field('co_filename').GetValue()
+            name = f.field('co_name').GetValue()
             lineno = Evaluate_LineNo(fr, "f").GetValue();
 
             print("frame #{}: {} - {}:{}".format(
