@@ -58,8 +58,6 @@ class PyObjectPtr(object):
 
         return self._SBValue.GetChildMemberWithName(name)
 
-        return NotImplemented
-
     def pyop_field(self, name):
         """
         Get a PyObjectPtr for the given PyObject *field within this
@@ -128,7 +126,7 @@ def gist_extr(s):
     return s[s.find('"') +1: s.rfind('"')]
 
 def is_evalframeex(frame):
-    return fr.GetFunctionName() == 'PyEval_EvalFrameEx'
+    return frame.GetFunctionName() == 'PyEval_EvalFrameEx'
 
 def py3bt(debugger=None, command=None, result=None, dict=None, thread=None):
     """
@@ -162,8 +160,8 @@ def py3bt(debugger=None, command=None, result=None, dict=None, thread=None):
             f = fr.GetValueForVariablePath("f")
             f = PyObjectPtr(f)
             f_code = PyObjectPtr(f.field('f_code'))
-            filename = f.field('co_filename').GetValue()
-            name = f.field('co_name').GetValue()
+            filename = f_code.field('co_filename').GetValue()
+            name = f_code.field('co_name').GetValue()
             lineno = Evaluate_LineNo(fr, "f").GetValue();
 
             print("frame #{}: {} - {}:{}".format(
