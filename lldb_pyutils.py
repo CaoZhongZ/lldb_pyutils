@@ -16,6 +16,16 @@
 
 import lldb
 
+Py_TPFLAGS_HEAPTYPE = (1 << 9)
+Py_TPFLAGS_LONG_SUBCLASS     = (1 << 24)
+Py_TPFLAGS_LIST_SUBCLASS     = (1 << 25)
+Py_TPFLAGS_TUPLE_SUBCLASS    = (1 << 26)
+Py_TPFLAGS_BYTES_SUBCLASS    = (1 << 27)
+Py_TPFLAGS_UNICODE_SUBCLASS  = (1 << 28)
+Py_TPFLAGS_DICT_SUBCLASS     = (1 << 29)
+Py_TPFLAGS_BASE_EXC_SUBCLASS = (1 << 30)
+Py_TPFLAGS_TYPE_SUBCLASS     = (1 << 31)
+
 class NullPyObjectPtr(RuntimeError):
     pass
 
@@ -32,8 +42,11 @@ class PyObjectPtr(object):
     """
     _typename = 'PyObject'
 
-    def __init__(self, sbval):
-        self._SBValue = sbval;
+    def __init__(self, sbval, cast_type = None):
+        if cast_to:
+            self._SBValue = sbval.Cast(cast_type)
+        else:
+            self._SBValue = sbval;
 
     def field(self, name):
         """
@@ -99,7 +112,34 @@ class PyObjectPtr(object):
 
     @classmethod
     def subclass_from_type(cls, t):
-        return NotImplemented
+        """
+        Factory to create derivatives of PyObjectPtr
+        """
+        try:
+            tp_name = t.field('tp_name').GetValue()
+            tp_flags = t.field('tp_flags').GetValueAsUnsigned()
+        except RuntimeError:
+            return cls
+
+        name_map = { 'bool': PyBoolObjectPtr,
+                    'classobj' : PyClassObjectPtr,
+                    'NoneType' : PyNoneStructPtr,
+                    'frame' : PyFrameObjectPtr,
+                    'set' : PySetObjectPtr,
+                    'frozenset' : PySetObjectPtr,
+                    'builtin_function_or_method' : PyFunctionObjectPtr,
+                    'method-wrapper' : wrapperobject,
+                    }
+        if tp_name in name_map:
+            return name_map[tp_name]
+
+        if tp_flags & Py_TPFLAGS_HEAPTYPE:
+            return HeapTypeObjectPtr
+
+        if tp_flags & Py_TPFLAGS_UNICODE_SUBCLASS:
+            return PyUnicodeObjectPtr
+
+        return cls
 
     @classmethod
     def from_pyobject_ptr(cls, sbval):
@@ -107,14 +147,40 @@ class PyObjectPtr(object):
         Try to locate the appropritate drived class dynamically, and cast
         the pointer accordingly.
         """
-        return NotImplemented
+        try:
+            p = PyObjectPtr(sbval)
+            cls = cls.subclass_from_type(p.type())
+            return cls(sbval, cast_type = cls.get_lldb_type())
+        except RuntimeError:
+            pass
+
+        return cls(sbval)
 
     @classmethod
     def get_lldb_type(cls):
-        return NotImplemented
+        return lldb.target.FindFirstType(cls._typename).GetPointerType()
 
     def as_address(self):
-        return long(self._SBValue)
+        return self._SBValue.GetValueAsUnsigned()
+
+class PyUnicodeObjectPtr(PyObjectPtr):
+    _typename = 'PyUnicodeObject'
+
+    def __str__(self):
+        global _is_pep393
+        if _is_pep393 is None:
+            unicode_type = lldb.target.FindFirstType('PyUnicodeObject')
+
+            for i in range(str_type.GetNumberOfFields()):
+                if 'data' == str_type.GetFieldAtIndex(i).GetName():
+                    _is_pep393 = True
+
+        if _is_pep393:
+            return self._SBValue.CreateValueFromExpression('pystr',
+                'PyUnicode_AsUTF8 (' + self._SBvalue.GetValue() + ')').GetValue()
+        else:
+            # Python 3.2 and earlier
+            return NotImplemented
 
 def Evaluate_PyObject_AsUTF8(fr, obj):
     return fr.EvaluateExpression('PyUnicode_AsUTF8('+obj+')')
