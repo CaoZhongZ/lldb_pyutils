@@ -186,6 +186,6 @@ def __lldb_init_module(debugger, dict):
     """
     for cmd in CMDS:
         debugger.HandleCommand(
-            "command script add -f lldb_utils.{func} {cmd}".format(cmd=cmd[0],
+            "command script add -f lldb_pyutils.{func} {cmd}".format(cmd=cmd[0],
             func=cmd[1])
         )

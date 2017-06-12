@@ -9,5 +9,5 @@ setup(
     author='4pao',
     author_email='cao.zhong1@gmail.com',
     license='Apache License',
-    py_modules = ["lldb_pyutils"]
+    py_modules = ['lldb_pyutils']
 )
