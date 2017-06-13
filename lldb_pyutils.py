@@ -16,6 +16,8 @@
 
 import lldb
 
+_is_pep393 = None
+
 Py_TPFLAGS_HEAPTYPE = (1 << 9)
 Py_TPFLAGS_LONG_SUBCLASS     = (1 << 24)
 Py_TPFLAGS_LIST_SUBCLASS     = (1 << 25)
@@ -43,7 +45,7 @@ class PyObjectPtr(object):
     _typename = 'PyObject'
 
     def __init__(self, sbval, cast_type = None):
-        if cast_to:
+        if cast_type:
             self._SBValue = sbval.Cast(cast_type)
         else:
             self._SBValue = sbval;
@@ -121,15 +123,7 @@ class PyObjectPtr(object):
         except RuntimeError:
             return cls
 
-        name_map = { 'bool': PyBoolObjectPtr,
-                    'classobj' : PyClassObjectPtr,
-                    'NoneType' : PyNoneStructPtr,
-                    'frame' : PyFrameObjectPtr,
-                    'set' : PySetObjectPtr,
-                    'frozenset' : PySetObjectPtr,
-                    'builtin_function_or_method' : PyFunctionObjectPtr,
-                    'method-wrapper' : wrapperobject,
-                    }
+        name_map = {}
         if tp_name in name_map:
             return name_map[tp_name]
 
@@ -163,6 +157,9 @@ class PyObjectPtr(object):
     def as_address(self):
         return self._SBValue.GetValueAsUnsigned()
 
+class PyTypeObjectPtr(PyObjectPtr):
+    _typename = 'PyTypeObject'
+
 class PyUnicodeObjectPtr(PyObjectPtr):
     _typename = 'PyUnicodeObject'
 
@@ -171,19 +168,19 @@ class PyUnicodeObjectPtr(PyObjectPtr):
         if _is_pep393 is None:
             unicode_type = lldb.target.FindFirstType('PyUnicodeObject')
 
-            for i in range(str_type.GetNumberOfFields()):
-                if 'data' == str_type.GetFieldAtIndex(i).GetName():
+            for i in range(unicode_type.GetNumberOfFields()):
+                if 'data' == unicode_type.GetFieldAtIndex(i).GetName():
                     _is_pep393 = True
 
         if _is_pep393:
-            return self._SBValue.CreateValueFromExpression('pystr',
-                'PyUnicode_AsUTF8 (' + self._SBvalue.GetValue() + ')').GetValue()
+            ret = self._SBValue.CreateValueFromExpression('pystr',
+                'PyUnicode_AsUTF8 ((PyObject *)' +
+                    self._SBValue.GetValue() + ')').GetSummary()
+
+            return ret
         else:
             # Python 3.2 and earlier
             return NotImplemented
-
-def Evaluate_PyObject_AsUTF8(fr, obj):
-    return fr.EvaluateExpression('PyUnicode_AsUTF8('+obj+')')
 
 def Evaluate_LineNo(fr, obj):
     return fr.EvaluateExpression('PyFrame_GetLineNumber('+obj+')')
@@ -226,8 +223,11 @@ def py3bt(debugger=None, command=None, result=None, dict=None, thread=None):
             f = fr.GetValueForVariablePath("f")
             f = PyObjectPtr(f)
             f_code = PyObjectPtr(f.field('f_code'))
-            filename = f_code.field('co_filename').GetValue()
-            name = f_code.field('co_name').GetValue()
+
+            filename = PyObjectPtr.from_pyobject_ptr(f_code.field('co_filename'))
+
+            name = PyObjectPtr.from_pyobject_ptr(f_code.field('co_name'))
+
             lineno = Evaluate_LineNo(fr, "f").GetValue();
 
             print("frame #{}: {} - {}:{}".format(
