@@ -210,35 +210,32 @@ def py3bt(debugger=None, command=None, result=None, dict=None, thread=None):
 
     if debugger is None:
         debugger = lldb.debugger
-    target = debugger.GetSelectedTarget()
+    lldb.target = debugger.GetSelectedTarget()
 
     if not isinstance(thread, lldb.SBThread):
-        thread = target.GetProcess().GetSelectedThread()
+        thread = lldb.target.GetProcess().GetSelectedThread()
+        lldb.thread = thread
 
     num_frames = thread.GetNumFrames()
 
     for i in range(num_frames - 1):
         fr = thread.GetFrameAtIndex(i)
         if is_evalframeex(fr):
-            f = fr.GetValueForVariablePath("f")
-            f = PyObjectPtr(f)
+            f = PyObjectPtr(fr.GetValueForVariablePath("f"))
             f_code = PyObjectPtr(f.field('f_code'))
 
             filename = PyObjectPtr.from_pyobject_ptr(f_code.field('co_filename'))
-
             name = PyObjectPtr.from_pyobject_ptr(f_code.field('co_name'))
-
             lineno = Evaluate_LineNo(fr, "f").GetValue();
 
             print("frame #{}: {} - {}:{}".format(
                 fr.GetFrameID(),
                 filename if filename else ".",
                 name if name else ".",
-                lineno if lineno else ".",
+                lineno if lineno else "."
             ))
 
 CMDS = [("py3-bt", "py3bt")]
-
 
 def __lldb_init_module(debugger, dict):
     """
